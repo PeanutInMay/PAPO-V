@@ -49,7 +49,7 @@ from .core_algos import AdvantageEstimator, FixedKLController, KLController, com
 from .metrics import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics
 
 from PIL import Image
-from ..utils.dataset import collate_fn
+from ..utils.dataset import collate_fn, process_video
 from .papo_utils import random_patch_blackening
 
 
@@ -543,15 +543,21 @@ class RayPPOTrainer:
 
     def _aug_img_for_kl_prcp(self, original_images_pil: List[Image.Image]) -> List[Image.Image]:
         """
-        Perform augmentation on the original images for contrastive KL.
-        This function should be implemented based on the specific augmentation method used.
+        Perform augmentation on the original images (or video frames) for contrastive KL.
+        For video input, original_images_pil is a list of frames (List[Image.Image]).
         """
         aug_config = self.config.algorithm.aug_config
         if self.config.algorithm.contrastive_type == "augmented":
             augmented_images = []
             for img in original_images_pil:
-                aug_img = random_patch_blackening(img, **aug_config)
-                augmented_images.append(aug_img)
+                # img can be a single PIL Image (image mode) or a list of frames (video mode)
+                if isinstance(img, list):
+                    # video: augment each frame independently
+                    aug_frames = [random_patch_blackening(frame, **aug_config) for frame in img]
+                    augmented_images.append(aug_frames)
+                else:
+                    aug_img = random_patch_blackening(img, **aug_config)    
+                    augmented_images.append(aug_img)
             return augmented_images
         else:
             raise NotImplementedError(f"Unknown contrastive KL type: {self.config.algorithm.contrastive_type}.")
@@ -600,16 +606,42 @@ class RayPPOTrainer:
             new_batch: DataProto = DataProto.from_single_dict(batch_dict, meta_info=meta_info)
             
             if self.config.algorithm.use_kl_prcp and "multi_modal_data" in new_batch.non_tensor_batch.keys():
-                # take the raw PIL images
+                # take the raw PIL images / video frames
                 aug_multi_modal_data = []
                 for item in new_batch.non_tensor_batch["multi_modal_data"]:
                     if "image_aug" in item:
                         # use pre-augmented images (preprocessed for semantic-aware masking)
                         aug_images_pil = item.pop('image_aug')  # a list
-                    else: # online random masking
-                        original_images_pil = item['images'] # a list
+                        aug_multi_modal_data.append({"images": aug_images_pil})
+                    elif "images" in item:
+                        # image mode: online random patch blackening
+                        original_images_pil = item['images']  # List[PIL.Image]
                         aug_images_pil = self._aug_img_for_kl_prcp(original_images_pil)
-                    aug_multi_modal_data.append({"images": aug_images_pil})
+                        aug_multi_modal_data.append({"images": aug_images_pil})
+                    elif "videos" in item:
+                        # video mode: item["videos"] is a list of video paths (strings)
+                        # Decode each path to frames first, then augment frame-by-frame
+                        aug_videos = []
+                        for vpath in item["videos"]:
+                            frames = process_video(
+                                vpath,
+                                self.config.data.min_pixels,
+                                self.config.data.max_pixels,
+                                self.config.data.video_fps,
+                            )  # Tensor (N,C,H,W) or List[PIL.Image]
+                            # process_video may return a Tensor (N, C, H, W); convert to List[PIL.Image]
+                            if isinstance(frames, torch.Tensor):
+                                frames = [
+                                    Image.fromarray(frames[i].permute(1, 2, 0).numpy().astype(np.uint8))
+                                    for i in range(frames.shape[0])
+                                ]
+                            aug_frames = self._aug_img_for_kl_prcp(frames)  # List[PIL.Image]
+                            aug_videos.append(aug_frames)
+                        # store as List[List[PIL.Image]] under "videos"
+                        aug_multi_modal_data.append({"videos": aug_videos})
+                    else:
+                        # text-only sample, no augmentation needed
+                        aug_multi_modal_data.append({})
                 # add to new_batch
                 new_batch.non_tensor_batch["aug_multi_modal_data"] = aug_multi_modal_data
                 
@@ -696,6 +728,9 @@ class RayPPOTrainer:
         The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
+        if os.environ.get('RAY_DEBUG_MODE') == '1':
+            breakpoint()
+
         self.logger = Tracker(loggers=self.config.trainer.logger, config=self.config.to_dict())
         self.global_step = 0
         main_tqdm = tqdm(range(self.training_steps), desc="Running step", position=0)
@@ -705,7 +740,7 @@ class RayPPOTrainer:
         self._load_checkpoint()
         main_tqdm.update(self.global_step)
 
-        # perform validation before training
+        # perform validation before training    目前加上了val
         if self.val_reward_fn is not None and self.config.trainer.val_before_train:
             val_metrics = self._validate()
             self.logger.log(data=val_metrics, step=self.global_step)
@@ -721,7 +756,7 @@ class RayPPOTrainer:
                 # make a batch of data
                 with timer("gen", timing_raw):
                     self.actor_rollout_ref_wg.prepare_rollout_engine()
-                    batch = self._make_batch_data(metrics=metrics)
+                    batch = self._make_batch_data(metrics=metrics)  # 生成批次数据，包含生成的响应和原始输入等信息
                     self.actor_rollout_ref_wg.release_rollout_engine()
 
                 # balance the number of valid tokens on each dp rank.
@@ -734,13 +769,13 @@ class RayPPOTrainer:
 
                 reward_metrics = None
                 # compute reward
-                if "token_level_scores" not in batch.batch:
+                if "token_level_scores" not in batch.batch: # in case reward is already computed during online filtering
                     with timer("reward", timing_raw):
-                        reward_ref = self.reward_fn.compute_reward.remote(batch)
-                        reward_tensor, reward_metrics = ray.get(reward_ref)
+                        reward_ref = self.reward_fn.compute_reward.remote(batch)    # 通过RPC调用远程worker计算奖励，返回一个future对象reward_ref
+                        reward_tensor, reward_metrics = ray.get(reward_ref) # 等待reward_ref完成并获取结果，reward_tensor是一个张量，reward_metrics是一个字典，包含奖励相关的指标
 
-                if self.config.algorithm.use_kl_prcp:
-                    if reward_metrics is None:
+                if self.config.algorithm.use_kl_prcp:   
+                    if reward_metrics is None:  # 如果reward_metrics还没有计算过（可能在在线过滤中已经计算过了），则再次通过RPC调用远程worker计算奖励以获取reward_metrics
                         reward_ref = self.reward_fn.compute_reward.remote(batch)
                         reward_tensor, reward_metrics = ray.get(reward_ref)
 
@@ -749,7 +784,7 @@ class RayPPOTrainer:
                     # store kl_prcp coef in batch
                     batch = self._get_kl_prcp_coef(batch)
                 
-                if self.config.algorithm.use_sft_loss:
+                if self.config.algorithm.use_sft_loss:  
                     if reward_metrics is None:
                         reward_ref = self.reward_fn.compute_reward.remote(batch)
                         reward_tensor, reward_metrics = ray.get(reward_ref)
@@ -758,15 +793,19 @@ class RayPPOTrainer:
 
                 # recompute old_log_probs
                 with timer("old", timing_raw):
-                    old_log_probs = self.actor_rollout_ref_wg.compute_log_probs(batch)
+                    old_log_probs = self.actor_rollout_ref_wg.compute_log_probs(batch)  # 通过RPC调用远程worker计算旧的log概率，返回一个包含旧log概率的DataProto对象old_log_probs
                     batch = batch.union(old_log_probs)
 
                 # compute aug log_probs
                 if self.config.algorithm.use_kl_prcp and "aug_multi_modal_data" in batch.non_tensor_batch.keys():
                     # compute log_probs with augmented images
                     with timer("aug_probs", timing_raw):
-                        aug_log_probs = self.actor_rollout_ref_wg.compute_log_probs_aug(batch)
+                        aug_log_probs = self.actor_rollout_ref_wg.compute_log_probs_aug(batch)  # 通过RPC调用远程worker计算增强图像的log概率，返回一个包含增强log概率的DataProto对象aug_log_probs
                         batch = batch.union(aug_log_probs)
+                    # Free aug_multi_modal_data (large PIL images / video frames) immediately after
+                    # aug_log_probs are computed as tensors, they are no longer needed and would
+                    # waste memory if carried through all subsequent worker calls.
+                    del batch.non_tensor_batch["aug_multi_modal_data"]
 
                 # compute ref_log_probs
                 if self.use_reference_policy:

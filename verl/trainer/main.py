@@ -35,6 +35,8 @@ class Runner:
     def run(self, config: PPOConfig):
         # print config
         print(json.dumps(config.to_dict(), indent=2))
+        # if os.environ.get('RAY_DEBUG_MODE') == '1':
+        #     breakpoint()
 
         # instantiate tokenizer
         tokenizer = get_tokenizer(
@@ -119,10 +121,13 @@ def main():
                 "TORCH_NCCL_AVOID_RECORD_STREAMS": "1",
                 "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:False",
                 "PYTHONUNBUFFERED": "1",
+                "RAY_DEBUG_POST_MORTEM": "1",
+                "RAY_DEBUG": "1",
             }
         }
         ray.init(runtime_env=runtime_env)
 
+    # breakpoint()
     runner = Runner.remote()
     ray.get(runner.run.remote(ppo_config))
 

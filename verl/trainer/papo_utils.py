@@ -17,6 +17,7 @@ from PIL import Image
 def random_patch_blackening(pil_img, patch_size=14, black_prob=0.6):
     """Randomly blacken square patches in a PIL image."""
     img = np.array(pil_img).astype(np.float32)
+    # print(f"[DEBUG random_patch_blackening] type(pil_img)={type(pil_img)}, img.shape={img.shape}")
     h, w = img.shape[:2]
     for y in range(0, h, patch_size):
         for x in range(0, w, patch_size):
@@ -27,5 +28,5 @@ def random_patch_blackening(pil_img, patch_size=14, black_prob=0.6):
                     img[y:y_end, x:x_end, :] = 0
                 else:
                     img[y:y_end, x:x_end] = 0
-    return Image.fromarray(img.astype(np.uint8))
+    return Image.fromarray(img.astype(np.uint8))    
     

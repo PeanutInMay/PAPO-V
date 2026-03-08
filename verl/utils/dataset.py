@@ -85,7 +85,27 @@ def process_video(
     video: str, min_pixels: Optional[int], max_pixels: Optional[int], video_fps: float, return_fps: bool = False
 ) -> Union[List[ImageObject], Tuple[List[ImageObject], List[float]]]:
     vision_info = {"video": video, "min_pixels": min_pixels, "max_pixels": max_pixels, "fps": video_fps}
-    return fetch_video(vision_info, return_video_sample_fps=return_fps)
+    try:
+        return fetch_video(vision_info, return_video_sample_fps=return_fps)
+    except KeyError as e:
+        if "video_fps" in str(e):
+            # torchvision backend missing fps metadata; fallback: read frames manually via decord
+            try:
+                import decord
+                decord.bridge.set_bridge("native")
+                vr = decord.VideoReader(video)
+                actual_fps = vr.get_avg_fps()
+                num_frames = max(1, int(len(vr) * video_fps / actual_fps))
+                indices = [int(i * len(vr) / num_frames) for i in range(num_frames)]
+                frames = [Image.fromarray(vr[i].asnumpy()) for i in indices]
+                if return_fps:
+                    return frames, actual_fps
+                return frames
+            except Exception as inner_e:
+                raise RuntimeError(
+                    f"Failed to decode video '{video}' with both torchvision and decord: {inner_e}"
+                ) from e
+        raise
 
 
 class RLHFDataset(Dataset):
@@ -312,6 +332,9 @@ class RLHFDataset(Dataset):
         elif self.video_key in example:
             prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             videos = example[self.video_key]
+            # normalize: single string path → list
+            if isinstance(videos, str):
+                videos = [videos]
             if self.image_dir is not None and len(videos) != 0 and isinstance(videos[0], str):  # video paths
                 videos = [os.path.join(self.image_dir, video) for video in videos]
 
@@ -358,6 +381,9 @@ class RLHFDataset(Dataset):
         elif self.video_key in example:
             prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             videos = example.pop(self.video_key)
+            # normalize: single string path → list
+            if isinstance(videos, str):
+                videos = [videos]
             if self.image_dir is not None and len(videos) != 0 and isinstance(videos[0], str):  # video paths
                 videos = [os.path.join(self.image_dir, video) for video in videos]
 

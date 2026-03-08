@@ -14,5 +14,12 @@ __pycache__/
 *.bin
 *.safetensors
 *.h5
+*.html
+*.md
+*.json
+*.pt
+*.jinja
+*.js
+*.png
 
 .vscode

@@ -1,0 +1,13 @@
+{"time":"2026-03-08T20:04:12.169292865+08:00","level":"INFO","msg":"stream: starting","core version":"0.25.0"}
+{"time":"2026-03-08T20:04:12.635406982+08:00","level":"WARN","msg":"featurechecker: GraphQL client is nil, skipping feature loading"}
+{"time":"2026-03-08T20:04:12.635533295+08:00","level":"INFO","msg":"stream: created new stream","id":"kztf860n"}
+{"time":"2026-03-08T20:04:12.635622027+08:00","level":"INFO","msg":"handler: started","stream_id":"kztf860n"}
+{"time":"2026-03-08T20:04:12.636194158+08:00","level":"INFO","msg":"stream: started","id":"kztf860n"}
+{"time":"2026-03-08T20:04:12.636218954+08:00","level":"INFO","msg":"writer: started","stream_id":"kztf860n"}
+{"time":"2026-03-08T20:04:12.636233569+08:00","level":"INFO","msg":"sender: started","stream_id":"kztf860n"}
+{"time":"2026-03-08T20:04:12.637710808+08:00","level":"WARN","msg":"runupserter: server does not expand metric globs but the x_server_side_expand_glob_metrics setting is set; ignoring"}
+{"time":"2026-03-08T20:14:08.095958385+08:00","level":"INFO","msg":"handler: operation stats","stats":{}}
+{"time":"2026-03-08T20:14:08.108036645+08:00","level":"INFO","msg":"stream: closing","id":"kztf860n"}
+{"time":"2026-03-08T20:14:08.108083148+08:00","level":"INFO","msg":"handler: closed","stream_id":"kztf860n"}
+{"time":"2026-03-08T20:14:08.108530145+08:00","level":"INFO","msg":"sender: closed","stream_id":"kztf860n"}
+{"time":"2026-03-08T20:14:08.108574742+08:00","level":"INFO","msg":"stream: closed","id":"kztf860n"}

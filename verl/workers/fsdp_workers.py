@@ -502,7 +502,12 @@ class FSDPWorker(Worker):
 
             if "videos" in multi_modal_data:
                 for video in multi_modal_data["videos"]:
-                    videos.append(process_video(video, min_pixels, max_pixels, video_fps))
+                    if isinstance(video, str):
+                        # video is a path: decode to frames
+                        videos.append(process_video(video, min_pixels, max_pixels, video_fps))
+                    else:
+                        # video is already a list of PIL frames (pre-augmented)
+                        videos.append(video)
 
             if len(images) != 0:
                 # it's necessary to add `dict` to properly convert batch features to dict
@@ -581,6 +586,8 @@ class FSDPWorker(Worker):
             offload_fsdp_optimizer(optimizer=self.optimizer)
 
         output = output.to("cpu")
+        # Free fragmented GPU memory after backward pass
+        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -701,6 +708,8 @@ class FSDPWorker(Worker):
             offload_fsdp_model(self.fsdp_module)
 
         output = output.to("cpu")
+        # Free fragmented GPU memory left by large aug video pixel_values allocations
+        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
