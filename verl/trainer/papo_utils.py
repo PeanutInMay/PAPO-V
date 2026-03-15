@@ -30,3 +30,12 @@ def random_patch_blackening(pil_img, patch_size=14, black_prob=0.6):
                     img[y:y_end, x:x_end] = 0
     return Image.fromarray(img.astype(np.uint8))    
     
+    
+# 需要针对video frame设计新的数据增强方法，以下是一些可能的思路：
+# 1. 空间一致性：
+    # 随机从某一帧开始，连续黑化若干帧的相同位置的patch，以模拟视频中的遮挡或损坏。
+# 2. 时间扰动：
+    # 在连续的某一段帧中，把这些帧替换为全黑画面
+# 3. 打乱顺序
+    # 对帧进行重排列（具体的规则）
+# 4. 删除一段连续时间的帧
