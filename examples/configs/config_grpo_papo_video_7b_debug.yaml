@@ -40,6 +40,19 @@ algorithm:
   aug_config:
     patch_size: 14
     black_prob: 0.6
+    # Spatial augmentation modes for video (can be enabled/disabled independently):
+    # All four modes can be combined and are applied in sequence:
+    #   1. Spatial Consistent -> 2. Spatial Random -> 3. Temporal Blackout -> 4. Temporal Shuffle
+    enable_spatial_consistent: true   # All frames use the same spatial mask
+    enable_spatial_random: false      # Each frame has independent spatial mask
+    # Temporal blackout: randomly blackout consecutive frames
+    enable_temporal_blackout: false
+    blackout_ratio: 0.5  # Ratio of frames to blackout (e.g., 0.5 = 50% of frames)
+    # Temporal shuffle: shuffle segments of frames
+    enable_temporal_shuffle: false
+    shuffle_ratio: 0.5  # Ratio of segments to shuffle (e.g., 0.5 = 50% of segments)
+    min_segment_len: 1  # Minimum segment length for shuffling
+    max_segment_len: 4  # Maximum segment length for shuffling
   kl_prcp_schedule: fixed
   kl_prcp_schedule_args:
     start_value: 1.0e-2

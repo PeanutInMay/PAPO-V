@@ -23,7 +23,7 @@ from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import IntEnum, auto
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, Union
 
 import numpy as np
 import ray
@@ -50,7 +50,7 @@ from .metrics import compute_data_metrics, compute_throughout_metrics, compute_t
 
 from PIL import Image
 from ..utils.dataset import collate_fn, process_video
-from .papo_utils import random_patch_blackening
+from .papo_utils import random_patch_blackening, random_patch_blackening_video
 
 
 class Role(IntEnum):
@@ -541,24 +541,61 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-    def _aug_img_for_kl_prcp(self, original_images_pil: List[Image.Image]) -> List[Image.Image]:
+    def _aug_img_for_kl_prcp(self, original_data: List[Union[Image.Image, List[Image.Image]]]) -> List[Union[Image.Image, List[Image.Image]]]:
         """
-        Perform augmentation on the original images (or video frames) for contrastive KL.
-        For video input, original_images_pil is a list of frames (List[Image.Image]).
+        Perform augmentation on the original images or video frames for contrastive KL.
+
+        Args:
+            original_data: List of either:
+                - PIL Image objects (for image data)
+                - List of PIL Image objects (for video data, each Image is a frame)
+
+        Returns:
+            Augmented data with the same structure as input.
+            For images: returns augmented PIL Image
+            For videos: returns list of augmented frames
         """
-        aug_config = self.config.algorithm.aug_config
+        aug_config = self.config.algorithm.aug_config.copy()
+
+        # Extract video augmentation specific parameters (if specified)
+        # All four modes can be enabled/disabled independently
+        enable_spatial_consistent = aug_config.pop("enable_spatial_consistent", True)
+        enable_spatial_random = aug_config.pop("enable_spatial_random", False)
+        enable_temporal_blackout = aug_config.pop("enable_temporal_blackout", False)
+        blackout_ratio = aug_config.pop("blackout_ratio", 0.5)
+        enable_temporal_shuffle = aug_config.pop("enable_temporal_shuffle", False)
+        shuffle_ratio = aug_config.pop("shuffle_ratio", 0.5)
+        min_segment_len = aug_config.pop("min_segment_len", 1)
+        max_segment_len = aug_config.pop("max_segment_len", 4)
+
         if self.config.algorithm.contrastive_type == "augmented":
-            augmented_images = []
-            for img in original_images_pil:
-                # img can be a single PIL Image (image mode) or a list of frames (video mode)
-                if isinstance(img, list):
-                    # video: augment each frame independently
-                    aug_frames = [random_patch_blackening(frame, **aug_config) for frame in img]
-                    augmented_images.append(aug_frames)
+            augmented_data = []
+            for item in original_data:
+                if isinstance(item, list):
+                    # Video mode: item is a list of frames (List[PIL.Image])
+                    # Use video-specific augmentation with configurable modes
+                    aug_frames = random_patch_blackening_video(
+                        item,
+                        patch_size=aug_config.get("patch_size", 14),
+                        black_prob=aug_config.get("black_prob", 0.6),
+                        enable_spatial_consistent=enable_spatial_consistent,
+                        enable_spatial_random=enable_spatial_random,
+                        enable_temporal_blackout=enable_temporal_blackout,
+                        blackout_ratio=blackout_ratio,
+                        enable_temporal_shuffle=enable_temporal_shuffle,
+                        shuffle_ratio=shuffle_ratio,
+                        min_segment_len=min_segment_len,
+                        max_segment_len=max_segment_len
+                    )
+                    augmented_data.append(aug_frames)
+                elif isinstance(item, Image.Image):
+                    # Image mode: item is a single PIL Image
+                    aug_img = random_patch_blackening(item, **aug_config)
+                    augmented_data.append(aug_img)
                 else:
-                    aug_img = random_patch_blackening(img, **aug_config)    
-                    augmented_images.append(aug_img)
-            return augmented_images
+                    raise TypeError(f"Unsupported data type for augmentation: {type(item)}. "
+                                    f"Expected PIL.Image or List[PIL.Image]")
+            return augmented_data
         else:
             raise NotImplementedError(f"Unknown contrastive KL type: {self.config.algorithm.contrastive_type}.")
 

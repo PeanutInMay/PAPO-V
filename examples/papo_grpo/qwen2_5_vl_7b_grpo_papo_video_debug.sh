@@ -27,6 +27,25 @@ VAL_FILE="/home/zhzhu/dataset/Video-R1-data/PerceptionTest_val_parquet/"
 FORMAT_PROMPT="examples/format_prompt/math_perception.jinja"
 REWARD_FUNCTION="examples/reward_function/math.py:compute_score"
 
+# KL-PRCP (Perception-Aware Policy Optimization) configuration
+# For video data, augmentation settings can be configured via config file.
+# All four augmentation modes can be enabled/disabled independently and are applied in sequence:
+#
+# 1. Spatial Consistent (enable_spatial_consistent):
+#    - All frames use the same spatial mask for patch blackening
+#    - Recommended for maintaining spatial consistency across frames
+#
+# 2. Spatial Random (enable_spatial_random):
+#    - Each frame has an independent random spatial mask
+#    - Increases diversity but may break spatial consistency
+#
+# 3. Temporal Blackout (enable_temporal_blackout + blackout_ratio):
+#    - Randomly blackout consecutive frames based on blackout_ratio
+#    - Start index is randomized, frames after that are blacked out
+#
+# 4. Temporal Shuffle (enable_temporal_shuffle + shuffle_ratio):
+#    - Shuffle segments of frames based on shuffle_ratio
+#    - Segment length is between min_segment_len and max_segment_len
 KL_PRCP_COEF=0.02
 
 CUDA_VISIBLE_DEVICES=${CUDA_IDS} python3 -m verl.trainer.main \
