@@ -639,6 +639,7 @@ class RayPPOTrainer:
                 "min_pixels": self.config.data.min_pixels,
                 "max_pixels": self.config.data.max_pixels,
                 "video_fps": self.config.data.video_fps,
+                "video_frame": self.config.data.video_frame,
             }
             new_batch: DataProto = DataProto.from_single_dict(batch_dict, meta_info=meta_info)
             
@@ -665,6 +666,7 @@ class RayPPOTrainer:
                                 self.config.data.min_pixels,
                                 self.config.data.max_pixels,
                                 self.config.data.video_fps,
+                                self.config.data.video_frame,
                             )  # Tensor (N,C,H,W) or List[PIL.Image]
                             # process_video may return a Tensor (N, C, H, W); convert to List[PIL.Image]
                             if isinstance(frames, torch.Tensor):
@@ -847,7 +849,7 @@ class RayPPOTrainer:
                 # compute ref_log_probs
                 if self.use_reference_policy:
                     with timer("ref", timing_raw):
-                        ref_log_probs = self.actor_rollout_ref_wg.compute_ref_log_probs(batch)
+                        ref_log_probs = self.actor_rollout_ref_wg.compute_ref_log_probs(batch)  # 通过RPC调用远程worker计算参考策略的log概率，返回一个包含参考log概率的DataProto对象ref_log_probs
                         batch = batch.union(ref_log_probs)
 
                 # compute values

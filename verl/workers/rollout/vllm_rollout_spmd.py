@@ -50,7 +50,7 @@ def _get_logit_bias(processor: Optional[ProcessorMixin]) -> Optional[Dict[int, f
 
 
 def _process_multi_modal_data(
-    multi_modal_data: Dict[str, Any], min_pixels: int, max_pixels: int, video_fps: float
+    multi_modal_data: Dict[str, Any], min_pixels: int, max_pixels: int, video_fps: float, video_frame: Optional[int] = None
 ) -> Dict[str, Any]:
     # may convert image path to image object
     images, videos = [], []
@@ -60,7 +60,7 @@ def _process_multi_modal_data(
 
     if "videos" in multi_modal_data:
         for video in multi_modal_data["videos"]:
-            videos.append(process_video(video, min_pixels, max_pixels, video_fps))
+            videos.append(process_video(video, min_pixels, max_pixels, video_fps, video_frame))
 
     if len(images) != 0:
         return {"image": images}
@@ -181,6 +181,7 @@ class vLLMRollout(BaseRollout):
                             prompts.meta_info["min_pixels"],
                             prompts.meta_info["max_pixels"],
                             prompts.meta_info["video_fps"],
+                            prompts.meta_info.get("video_frame", None),
                         ),
                     }
                 )

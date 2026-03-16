@@ -454,6 +454,7 @@ class FSDPWorker(Worker):
             min_pixels = data.meta_info["min_pixels"]
             max_pixels = data.meta_info["max_pixels"]
             video_fps = data.meta_info["video_fps"]
+            video_frame = data.meta_info.get("video_frame", None)
             batch_multi_modal_inputs = []
             for multi_modal_data in data.non_tensor_batch["multi_modal_data"]:
                 images, videos = [], []
@@ -463,7 +464,7 @@ class FSDPWorker(Worker):
 
                 if "videos" in multi_modal_data:
                     for video in multi_modal_data["videos"]:
-                        videos.append(process_video(video, min_pixels, max_pixels, video_fps))
+                        videos.append(process_video(video, min_pixels, max_pixels, video_fps, video_frame))
 
                 if len(images) != 0:
                     # it's necessary to add `dict` to properly convert batch features to dict
@@ -493,6 +494,7 @@ class FSDPWorker(Worker):
         min_pixels = data.meta_info["min_pixels"]
         max_pixels = data.meta_info["max_pixels"]
         video_fps = data.meta_info["video_fps"]
+        video_frame = data.meta_info.get("video_frame", None)
         batch_multi_modal_inputs = []
         for multi_modal_data in data.non_tensor_batch["aug_multi_modal_data"]:
             images, videos = [], []
@@ -504,7 +506,7 @@ class FSDPWorker(Worker):
                 for video in multi_modal_data["videos"]:
                     if isinstance(video, str):
                         # video is a path: decode to frames
-                        videos.append(process_video(video, min_pixels, max_pixels, video_fps))
+                        videos.append(process_video(video, min_pixels, max_pixels, video_fps, video_frame))
                     else:
                         # video is already a list of PIL frames (pre-augmented)
                         videos.append(video)
