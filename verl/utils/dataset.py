@@ -82,28 +82,77 @@ def process_image(
 
 
 def process_video(
-    video: str, min_pixels: Optional[int], max_pixels: Optional[int], video_fps: float, return_fps: bool = False
-) -> Union[List[ImageObject], Tuple[List[ImageObject], List[float]]]:
-    vision_info = {"video": video, "min_pixels": min_pixels, "max_pixels": max_pixels, "fps": video_fps}
+    video: str, min_pixels: Optional[int], max_pixels: Optional[int], video_fps: float,
+    video_frame: Optional[int] = None, return_fps: bool = False
+) -> Union[torch.Tensor, Tuple[torch.Tensor, float]]:
+    """
+    Process video and extract frames using qwen_vl_utils.fetch_video.
+
+    Args:
+        video: Path to video file
+        min_pixels: Minimum pixels constraint
+        max_pixels: Maximum pixels constraint
+        video_fps: Target fps for frame extraction (used when video_frame is None)
+        video_frame: If set, extract exactly this many frames uniformly from video (overrides fps)
+        return_fps: Whether to return the actual video fps
+
+    Returns:
+        torch.Tensor of shape (T, C, H, W), optionally with fps info
+    """
+    # Build vision_info dict for fetch_video
+    # Note: fetch_video returns torch.Tensor (T, C, H, W) format
+    vision_info = {
+        "video": video,
+        "min_pixels": min_pixels,
+        "max_pixels": max_pixels,
+    }
+
+    # If video_frame is set, use nframes for fixed frame count sampling
+    if video_frame is not None and video_frame > 0:
+        vision_info["nframes"] = video_frame  # fetch_video supports nframes parameter
+    else:
+        vision_info["fps"] = video_fps
+
     try:
         return fetch_video(vision_info, return_video_sample_fps=return_fps)
     except KeyError as e:
         if "video_fps" in str(e):
-            # torchvision backend missing fps metadata; fallback: read frames manually via decord
+            # torchvision backend missing fps metadata; fallback
             try:
                 import decord
                 decord.bridge.set_bridge("native")
                 vr = decord.VideoReader(video)
                 actual_fps = vr.get_avg_fps()
-                num_frames = max(1, int(len(vr) * video_fps / actual_fps))
-                indices = [int(i * len(vr) / num_frames) for i in range(num_frames)]
-                frames = [Image.fromarray(vr[i].asnumpy()) for i in indices]
-                if return_fps:
-                    return frames, actual_fps
-                return frames
+                total_frames = len(vr)
+
+                if video_frame is not None and video_frame > 0:
+                    # Fixed frame sampling
+                    if total_frames <= video_frame:
+                        indices = list(range(total_frames))
+                        nframes = total_frames
+                    else:
+                        import torch
+                        nframes = video_frame
+                        indices = torch.linspace(0, total_frames - 1, nframes).round().long().tolist()
+                    video_tensor = vr.get_batch(indices).asnumpy()
+                    import torch
+                    video_tensor = torch.tensor(video_tensor).permute(0, 3, 1, 2)  # TCHW
+                    if return_fps:
+                        return video_tensor, actual_fps
+                    return video_tensor
+                else:
+                    # FPS-based sampling
+                    num_frames = max(1, int(total_frames * video_fps / actual_fps))
+                    indices = [int(i * total_frames / num_frames) for i in range(num_frames)]
+                    video_tensor = vr.get_batch(indices).asnumpy()
+                    import torch
+                    video_tensor = torch.tensor(video_tensor).permute(0, 3, 1, 2)  # TCHW
+                    if return_fps:
+                        return video_tensor, actual_fps
+                    return video_tensor
             except Exception as inner_e:
                 raise RuntimeError(
-                    f"Failed to decode video '{video}' with both torchvision and decord: {inner_e}"
+                    f"Failed to decode video '{video}' with both fetch_video and decord: {inner_e}"
                 ) from e
         raise
 
@@ -124,6 +173,7 @@ class RLHFDataset(Dataset):
         video_key: str = "videos",
         image_dir: Optional[str] = None,
         video_fps: float = 2.0,
+        video_frame: Optional[int] = None,  # 固定采样帧数
         max_prompt_length: int = 1024,
         truncation: str = "error",
         format_prompt: Optional[str] = None,
@@ -141,6 +191,7 @@ class RLHFDataset(Dataset):
         self.video_key = video_key
         self.image_dir = image_dir
         self.video_fps = video_fps
+        self.video_frame = video_frame
         self.max_prompt_length = max_prompt_length
         self.truncation = truncation
         self.min_pixels = min_pixels
@@ -340,7 +391,7 @@ class RLHFDataset(Dataset):
 
             processed_videos = [] if len(videos) != 0 else None  # text-only data
             for video in videos:
-                processed_videos.append(process_video(video, self.min_pixels, self.max_pixels, self.video_fps))
+                processed_videos.append(process_video(video, self.min_pixels, self.max_pixels, self.video_fps, self.video_frame))
 
             model_inputs = self.processor(
                 videos=processed_videos, text=[prompt], add_special_tokens=False, return_tensors="pt"
@@ -391,7 +442,7 @@ class RLHFDataset(Dataset):
             video_fps_list = []
             for video in videos:
                 processed_video, video_fps = process_video(
-                    video, self.min_pixels, self.max_pixels, self.video_fps, return_fps=True
+                    video, self.min_pixels, self.max_pixels, self.video_fps, self.video_frame, return_fps=True
                 )
                 processed_videos.append(processed_video)
                 video_fps_list.append(video_fps)

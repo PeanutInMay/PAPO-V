@@ -41,6 +41,7 @@ class DataConfig:
     video_key: str = "videos"
     image_dir: Optional[str] = None
     video_fps: float = 2.0
+    video_frame: Optional[int] = None  # 固定采样帧数，如果设置则覆盖 fps 控制
     max_prompt_length: int = 512
     max_response_length: int = 512
     rollout_batch_size: int = 512

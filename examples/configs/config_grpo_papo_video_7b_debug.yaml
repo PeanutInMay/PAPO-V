@@ -7,6 +7,7 @@ data:
   video_key: videos
   image_dir: null
   video_fps: 1.0          # keep low to limit frame count per video
+  video_frame: null        # if set, extract exactly this many frames uniformly (overrides fps). e.g., 16 for fixed 16 frames
   max_prompt_length: 8192  # video prompts are much longer than image
   max_response_length: 1024
   rollout_batch_size: 128  # reduced from 384 (image) due to much longer video sequences
